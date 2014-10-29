@@ -1,15 +1,23 @@
-var caches = require('../libs/caches');
-
 self.oninstall = function(event) {
+  var urlsToPrefetch = [
+    '/trained-to-thrill/',
+    '/trained-to-thrill/static/css/all.css',
+    '/trained-to-thrill/static/js/page.js',
+    '/trained-to-thrill/static/imgs/logo.svg',
+    '/trained-to-thrill/static/imgs/icon.png'
+  ];
+
   event.waitUntil(
     caches.open('trains-static-v14').then(function(cache) {
-      return cache.addAll([
-        '/trained-to-thrill/',
-        '/trained-to-thrill/static/css/all.css',
-        '/trained-to-thrill/static/js/page.js',
-        '/trained-to-thrill/static/imgs/logo.svg',
-        '/trained-to-thrill/static/imgs/icon.png'
-      ]);
+      return Promise.all(
+        urlsToPrefetch.map(function(url) {
+          return fetch(url);
+        })
+      ).then(function(responses) {
+        return responses.map(function(response, i) {
+          return cache.put(urlsToPrefetch[i], response);
+        });
+      });
     })
   );
 };
@@ -50,8 +58,10 @@ self.onfetch = function(event) {
   }
   else {
     event.respondWith(
-      caches.match(event.request, {
-        ignoreVary: true
+      caches.open('trains-static-v14').then(function(cache) {
+        return cache.match(event.request).catch(function() {
+          return null;
+        });
       })
     );
   }
@@ -59,7 +69,11 @@ self.onfetch = function(event) {
 
 function flickrAPIResponse(request) {
   if (request.headers.get('Accept') == 'x-cache/only') {
-    return caches.match(request);
+    return caches.open('trains-data').then(function(cache) {
+      return cache.match(request).catch(function() {
+        return null;
+      });
+    });
   }
   else {
     return fetch(request).then(function(response) {
@@ -88,8 +102,8 @@ function flickrAPIResponse(request) {
 
         cache.put(request, response.clone()).then(function() {
           console.log("Yey cache");
-        }, function() {
-          console.log("Nay cache");
+        }, function(error) {
+          console.error("Nay cache", error);
         });
 
         return response;
@@ -99,21 +113,21 @@ function flickrAPIResponse(request) {
 }
 
 function flickrImageResponse(request) {
-  return caches.match(request).then(function(response) {
-    if (response) {
+  return caches.open('trains-imgs').then(function(cache) {
+    return cache.match(request).then(function(response) {
       return response;
-    }
-
-    return fetch(request).then(function(response) {
-      caches.open('trains-imgs').then(function(cache) {
-        cache.put(request, response).then(function() {
-          console.log('yey img cache');
-        }, function() {
-          console.log('nay img cache');
+    }).catch(function() {
+      return fetch(request).then(function(response) {
+        caches.open('trains-imgs').then(function(cache) {
+          cache.put(request, response).then(function() {
+            console.log('yey img cache');
+          }, function(error) {
+            console.error('nay img cache', error);
+          });
         });
-      });
 
-      return response.clone();
+        return response.clone();
+      });
     });
   });
 }
